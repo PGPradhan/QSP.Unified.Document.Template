@@ -109,6 +109,21 @@ namespace QSP.Plugins.Proposal
                 tracing.Trace(
                     $"Final document generated. Size: {documentBytes.Length} bytes.");
 
+                var fileName =$"QSP-Proposal-{target.Id}.docx";
+
+                var documentBase64 =
+                    Convert.ToBase64String(
+                        documentBytes);
+
+                context.OutputParameters["FileName"] =
+                    fileName;
+
+                context.OutputParameters["Document"] =
+                    documentBase64;
+
+                tracing.Trace(
+                    $"Proposal output prepared. File: {fileName}");
+
                 tracing.Trace(
                     $"Word template ready. Size: {templateBytes.Length} bytes.");
 
