@@ -102,30 +102,35 @@ namespace QSP.Plugins.Proposal
                     templateService.GetTemplate(
                         QspProposalConstants.TemplateName);
 
-                var wordService = new WordDocumentService(tracing);
+                tracing.Trace(
+                    $"Word template ready. Size: {templateBytes.Length} bytes.");
 
-                var documentBytes = wordService.Generate(templateBytes,logoBytes);
+                var wordService =
+                    new WordDocumentService(tracing);
+
+                var documentBytes =
+                    wordService.Generate(
+                        templateBytes,
+                        logoBytes);
 
                 tracing.Trace(
                     $"Final document generated. Size: {documentBytes.Length} bytes.");
 
-                var fileName =$"QSP-Proposal-{target.Id}.docx";
+                var fileName =
+                    $"QSP-Proposal-{target.Id}.docx";
 
                 var documentBase64 =
                     Convert.ToBase64String(
                         documentBytes);
 
-                context.OutputParameters["FileName"] =
+                context.OutputParameters["pp_FileName"] =
                     fileName;
 
-                context.OutputParameters["Document"] =
+                context.OutputParameters["pp_Document"] =
                     documentBase64;
 
                 tracing.Trace(
                     $"Proposal output prepared. File: {fileName}");
-
-                tracing.Trace(
-                    $"Word template ready. Size: {templateBytes.Length} bytes.");
 
                 tracing.Trace(
                     "GenerateQspProposalPlugin completed successfully.");
