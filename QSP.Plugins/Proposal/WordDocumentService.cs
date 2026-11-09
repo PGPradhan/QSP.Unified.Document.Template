@@ -24,7 +24,7 @@ namespace QSP.Plugins.Proposal
 
         internal byte[] Generate(
             byte[] templateBytes,
-            byte[] logoBytes)
+            ProposalResult proposal)
         {
             if (templateBytes == null || templateBytes.Length == 0)
             {
@@ -32,7 +32,7 @@ namespace QSP.Plugins.Proposal
                     "Word template is empty.");
             }
 
-            if (logoBytes == null || logoBytes.Length == 0)
+            if (proposal == null)
             {
                 throw new InvalidPluginExecutionException(
                     "Business Unit logo is empty.");
@@ -64,9 +64,39 @@ namespace QSP.Plugins.Proposal
                             "Word document does not contain a MainDocumentPart.");
                     }
 
+                    ReplaceTextContentControl(
+    mainPart,
+    QspProposalConstants.ProposalDateTag,
+    proposal.ProposalDate);
+
+                    ReplaceTextContentControl(
+                        mainPart,
+                        QspProposalConstants.ClientNameTag,
+                        proposal.ClientName);
+
+                    ReplaceTextContentControl(
+                        mainPart,
+                        QspProposalConstants.ContactNameTag,
+                        proposal.ContactName);
+
+                    ReplaceTextContentControl(
+                        mainPart,
+                        QspProposalConstants.ProjectNameTag,
+                        proposal.ProjectName);
+
+                    ReplaceTextContentControl(
+                        mainPart,
+                        QspProposalConstants.SiteAddressTag,
+                        proposal.SiteAddress);
+
+                    ReplaceTextContentControl(
+                        mainPart,
+                        QspProposalConstants.SellPriceTag,
+                        proposal.SellPrice);
+
                     ReplaceBusinessUnitLogo(
                         mainPart,
-                        logoBytes);
+                        proposal.LogoBytes);
 
                     mainPart.Document.Save();
                 }
@@ -79,6 +109,114 @@ namespace QSP.Plugins.Proposal
 
                 return result;
             }
+        }
+
+        private void ReplaceTextContentControl(
+    MainDocumentPart mainPart,
+    string tagName,
+    string value)
+        {
+            _tracing.Trace(
+                $"Searching for text content control: {tagName}");
+
+            var controls =
+                mainPart.Document
+                    .Descendants<SdtElement>()
+                    .Where(
+                        control =>
+                        {
+                            var tag =
+                                control.SdtProperties?
+                                    .GetFirstChild<Tag>();
+
+                            return tag != null &&
+                                   string.Equals(
+                                       tag.Val?.Value,
+                                       tagName,
+                                       StringComparison.Ordinal);
+                        })
+                    .ToList();
+
+            if (controls.Count == 0)
+            {
+                throw new InvalidPluginExecutionException(
+                    $"Word content control '{tagName}' was not found.");
+            }
+
+            foreach (var control in controls)
+            {
+                ReplaceTextContent(
+                    control,
+                    value ?? string.Empty);
+            }
+
+            _tracing.Trace(
+                $"Content control '{tagName}' populated. Matches: {controls.Count}");
+        }
+
+        private void ReplaceTextContent(
+    SdtElement control,
+    string value)
+        {
+            var blockContent =
+                control.GetFirstChild<SdtContentBlock>();
+
+            if (blockContent != null)
+            {
+                blockContent.RemoveAllChildren();
+
+                blockContent.AppendChild(
+                    new Paragraph(
+                        new Run(
+                            new Text(value)
+                            {
+                                Space =
+                                    SpaceProcessingModeValues.Preserve
+                            })));
+
+                return;
+            }
+
+            var runContent =
+                control.GetFirstChild<SdtContentRun>();
+
+            if (runContent != null)
+            {
+                runContent.RemoveAllChildren();
+
+                runContent.AppendChild(
+                    new Run(
+                        new Text(value)
+                        {
+                            Space =
+                                SpaceProcessingModeValues.Preserve
+                        }));
+
+                return;
+            }
+
+            var cellContent =
+                control.GetFirstChild<SdtContentCell>();
+
+            if (cellContent != null)
+            {
+                cellContent.RemoveAllChildren();
+
+                cellContent.AppendChild(
+                    new TableCell(
+                        new Paragraph(
+                            new Run(
+                                new Text(value)
+                                {
+                                    Space =
+                                        SpaceProcessingModeValues.Preserve
+                                }))));
+
+                return;
+            }
+
+            throw new InvalidPluginExecutionException(
+                "Unsupported Word text content control structure.");
         }
 
         private void ReplaceBusinessUnitLogo(

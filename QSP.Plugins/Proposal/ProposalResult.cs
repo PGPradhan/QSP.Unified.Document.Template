@@ -2,7 +2,18 @@
 {
     internal class ProposalResult
     {
-        internal string FileName { get; set; }
-        internal byte[] Document { get; set; }
+        internal string ProposalDate { get; set; }
+
+        internal string ClientName { get; set; }
+
+        internal string ContactName { get; set; }
+
+        internal string ProjectName { get; set; }
+
+        internal string SiteAddress { get; set; }
+
+        internal string SellPrice { get; set; }
+
+        internal byte[] LogoBytes { get; set; }
     }
 }
