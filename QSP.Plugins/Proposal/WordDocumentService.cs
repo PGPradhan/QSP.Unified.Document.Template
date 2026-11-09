@@ -1,14 +1,15 @@
 ﻿using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
-using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
-using A = DocumentFormat.OpenXml.Drawing;
-using PIC = DocumentFormat.OpenXml.Drawing.Pictures;
 using Microsoft.Xrm.Sdk;
+using QSP.Plugins.Constants;
 using System;
+using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Drawing;
+using A = DocumentFormat.OpenXml.Drawing;
+using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
+using PIC = DocumentFormat.OpenXml.Drawing.Pictures;
 
 namespace QSP.Plugins.Proposal
 {
@@ -16,8 +17,7 @@ namespace QSP.Plugins.Proposal
     {
         private readonly ITracingService _tracing;
 
-        internal WordDocumentService(
-            ITracingService tracing)
+        internal WordDocumentService(ITracingService tracing)
         {
             _tracing = tracing;
         }
@@ -26,19 +26,20 @@ namespace QSP.Plugins.Proposal
             byte[] templateBytes,
             byte[] logoBytes)
         {
-            if (templateBytes == null ||
-                templateBytes.Length == 0)
+            if (templateBytes == null || templateBytes.Length == 0)
             {
                 throw new InvalidPluginExecutionException(
                     "Word template is empty.");
             }
 
-            if (logoBytes == null ||
-                logoBytes.Length == 0)
+            if (logoBytes == null || logoBytes.Length == 0)
             {
                 throw new InvalidPluginExecutionException(
                     "Business Unit logo is empty.");
             }
+
+            _tracing.Trace(
+                $"Generating Word document. Template size: {templateBytes.Length} bytes.");
 
             using (var stream = new MemoryStream())
             {
@@ -54,78 +55,342 @@ namespace QSP.Plugins.Proposal
                         stream,
                         true))
                 {
-                    _tracing.Trace(
-                        "Word document opened.");
+                    var mainPart =
+                        document.MainDocumentPart;
 
-                    ReplaceLogo(
-                        document,
+                    if (mainPart == null)
+                    {
+                        throw new InvalidPluginExecutionException(
+                            "Word document does not contain a MainDocumentPart.");
+                    }
+
+                    ReplaceBusinessUnitLogo(
+                        mainPart,
                         logoBytes);
 
-                    document.MainDocumentPart
-                        .Document.Save();
+                    mainPart.Document.Save();
                 }
 
-                _tracing.Trace(
-                    "Logo replacement completed.");
+                var result =
+                    stream.ToArray();
 
-                return stream.ToArray();
+                _tracing.Trace(
+                    $"Word document generated successfully. Size: {result.Length} bytes.");
+
+                return result;
             }
         }
 
-        private void ReplaceLogo(
-            WordprocessingDocument document,
+        private void ReplaceBusinessUnitLogo(
+            MainDocumentPart mainPart,
             byte[] logoBytes)
         {
-            var mainPart =
-                document.MainDocumentPart;
+            _tracing.Trace(
+                $"Searching for content control: {QspProposalConstants.LogoTag}");
 
             var logoControl =
                 mainPart.Document
                     .Descendants<SdtElement>()
-                    .FirstOrDefault(x =>
-                        x.SdtProperties?
-                            .GetFirstChild<Tag>()?
-                            .Val?.Value ==
-                        Constants.QspProposalConstants.LogoTag);
+                    .FirstOrDefault(
+                        control =>
+                        {
+                            var tag =
+                                control.SdtProperties?
+                                    .GetFirstChild<Tag>();
+
+                            return tag != null &&
+                                   string.Equals(
+                                       tag.Val?.Value,
+                                       QspProposalConstants.LogoTag,
+                                       StringComparison.Ordinal);
+                        });
 
             if (logoControl == null)
             {
                 throw new InvalidPluginExecutionException(
-                    "Word content control 'QSP_BU_LOGO' was not found.");
+                    $"Word content control '{QspProposalConstants.LogoTag}' was not found.");
             }
 
             _tracing.Trace(
-                "QSP_BU_LOGO content control found.");
+                $"Content control '{QspProposalConstants.LogoTag}' found.");
 
-            var imageType =
-                GetImageType(logoBytes);
+            var imagePartType =
+                GetImagePartType(
+                    logoBytes);
 
             var imagePart =
-                mainPart.AddImagePart(imageType);
+                mainPart.AddImagePart(
+                    imagePartType);
 
             using (var imageStream =
                 new MemoryStream(logoBytes))
             {
-                imagePart.FeedData(imageStream);
+                imagePart.FeedData(
+                    imageStream);
             }
 
             var relationshipId =
-                mainPart.GetIdOfPart(imagePart);
+                mainPart.GetIdOfPart(
+                    imagePart);
+
+            var dimensions =
+                CalculateLogoDimensions(
+                    logoBytes);
+
+            _tracing.Trace(
+                $"Creating logo drawing. Width EMU: {dimensions.Item1}, Height EMU: {dimensions.Item2}");
 
             var drawing =
-                CreateLogoDrawing(
-                    relationshipId, logoBytes);
+                CreateImageDrawing(
+                    relationshipId,
+                    dimensions.Item1,
+                    dimensions.Item2);
 
             ReplaceContentControlWithImage(
                 logoControl,
                 drawing);
 
             _tracing.Trace(
-                "Business Unit logo inserted.");
+                "Business Unit logo inserted successfully.");
         }
 
-        private PartTypeInfo GetImageType(byte[] imageBytes)
+        private void ReplaceContentControlWithImage(
+            SdtElement logoControl,
+            Drawing drawing)
         {
+            var paragraph =
+                new Paragraph(
+                    new ParagraphProperties(
+                        new Justification
+                        {
+                            Val =
+                                JustificationValues.Center
+                        }),
+                    new Run(
+                        drawing));
+
+            var parent =
+                logoControl.Parent;
+
+            if (parent == null)
+            {
+                throw new InvalidPluginExecutionException(
+                    "Logo content control does not have a valid parent element.");
+            }
+
+            /*
+             * IMPORTANT:
+             *
+             * We intentionally replace the complete Picture Content Control.
+             *
+             * The original Word Picture Content Control can contain its own
+             * drawing size/cropping information. Keeping that structure caused
+             * the Business Unit logo to remain cropped.
+             */
+
+            if (parent is Paragraph parentParagraph)
+            {
+                var grandParent =
+                    parentParagraph.Parent;
+
+                if (grandParent == null)
+                {
+                    throw new InvalidPluginExecutionException(
+                        "Logo paragraph does not have a valid parent element.");
+                }
+
+                grandParent.InsertAfter(
+                    paragraph,
+                    parentParagraph);
+
+                parentParagraph.Remove();
+
+                _tracing.Trace(
+                    "Logo Picture Content Control paragraph replaced.");
+            }
+            else
+            {
+                parent.InsertAfter(
+                    paragraph,
+                    logoControl);
+
+                logoControl.Remove();
+
+                _tracing.Trace(
+                    "Logo Picture Content Control replaced.");
+            }
+        }
+
+        private Drawing CreateImageDrawing(
+            string relationshipId,
+            long widthEmu,
+            long heightEmu)
+        {
+            return new Drawing(
+                new DW.Inline(
+                    new DW.Extent
+                    {
+                        Cx = widthEmu,
+                        Cy = heightEmu
+                    },
+                    new DW.EffectExtent
+                    {
+                        LeftEdge = 0L,
+                        TopEdge = 0L,
+                        RightEdge = 0L,
+                        BottomEdge = 0L
+                    },
+                    new DW.DocProperties
+                    {
+                        Id = 1U,
+                        Name = "QSP Business Unit Logo"
+                    },
+                    new DW.NonVisualGraphicFrameDrawingProperties(
+                        new A.GraphicFrameLocks
+                        {
+                            NoChangeAspect =
+                                true
+                        }),
+                    new A.Graphic(
+                        new A.GraphicData(
+                            new PIC.Picture(
+                                new PIC.NonVisualPictureProperties(
+                                    new PIC.NonVisualDrawingProperties
+                                    {
+                                        Id = 0U,
+                                        Name = "QSP Business Unit Logo"
+                                    },
+                                    new PIC.NonVisualPictureDrawingProperties()),
+                                new PIC.BlipFill(
+                                    new A.Blip
+                                    {
+                                        Embed =
+                                            relationshipId,
+                                        CompressionState =
+                                            A.BlipCompressionValues.Print
+                                    },
+                                    new A.Stretch(
+                                        new A.FillRectangle())),
+                                new PIC.ShapeProperties(
+                                    new A.Transform2D(
+                                        new A.Offset
+                                        {
+                                            X = 0L,
+                                            Y = 0L
+                                        },
+                                        new A.Extents
+                                        {
+                                            Cx = widthEmu,
+                                            Cy = heightEmu
+                                        }),
+                                    new A.PresetGeometry(
+                                        new A.AdjustValueList())
+                                    {
+                                        Preset =
+                                            A.ShapeTypeValues.Rectangle
+                                    })))
+                        {
+                            Uri =
+                                "http://schemas.openxmlformats.org/drawingml/2006/picture"
+                        }))
+                {
+                    DistanceFromTop = 0U,
+                    DistanceFromBottom = 0U,
+                    DistanceFromLeft = 0U,
+                    DistanceFromRight = 0U
+                });
+        }
+
+        private Tuple<long, long> CalculateLogoDimensions(
+            byte[] logoBytes)
+        {
+            const long emuPerInch =
+                914400L;
+
+            const double maxWidthInches =
+                6.5;
+
+            const double maxHeightInches =
+                1.5;
+
+            using (var stream =
+                new MemoryStream(
+                    logoBytes))
+            using (var image =
+                Image.FromStream(
+                    stream))
+            {
+                double pixelWidth =
+                    image.Width;
+
+                double pixelHeight =
+                    image.Height;
+
+                if (pixelWidth <= 0 ||
+                    pixelHeight <= 0)
+                {
+                    throw new InvalidPluginExecutionException(
+                        "Business Unit logo has invalid dimensions.");
+                }
+
+                double aspectRatio =
+                    pixelWidth /
+                    pixelHeight;
+
+                double finalWidth =
+                    maxWidthInches;
+
+                double finalHeight =
+                    finalWidth /
+                    aspectRatio;
+
+                if (finalHeight >
+                    maxHeightInches)
+                {
+                    finalHeight =
+                        maxHeightInches;
+
+                    finalWidth =
+                        finalHeight *
+                        aspectRatio;
+                }
+
+                long widthEmu =
+                    (long)(
+                        finalWidth *
+                        emuPerInch);
+
+                long heightEmu =
+                    (long)(
+                        finalHeight *
+                        emuPerInch);
+
+                _tracing.Trace(
+                    $"Original logo dimensions: {image.Width}x{image.Height}px");
+
+                _tracing.Trace(
+                    $"Logo aspect ratio: {aspectRatio:F2}");
+
+                _tracing.Trace(
+                    $"Final logo dimensions: {finalWidth:F2}x{finalHeight:F2} inches");
+
+                return Tuple.Create(
+                    widthEmu,
+                    heightEmu);
+            }
+        }
+
+        private PartTypeInfo GetImagePartType(
+            byte[] imageBytes)
+        {
+            if (imageBytes == null ||
+                imageBytes.Length < 4)
+            {
+                throw new InvalidPluginExecutionException(
+                    "Business Unit logo is not a valid image.");
+            }
+
+            // PNG
             if (imageBytes.Length >= 8 &&
                 imageBytes[0] == 0x89 &&
                 imageBytes[1] == 0x50 &&
@@ -135,226 +400,30 @@ namespace QSP.Plugins.Proposal
                 return ImagePartType.Png;
             }
 
-            if (imageBytes.Length >= 2 &&
-                imageBytes[0] == 0xFF &&
+            // JPEG
+            if (imageBytes[0] == 0xFF &&
                 imageBytes[1] == 0xD8)
             {
                 return ImagePartType.Jpeg;
             }
 
-            throw new InvalidPluginExecutionException(
-                "Business Unit logo must be PNG or JPEG.");
-        }
-
-        private Drawing CreateLogoDrawing(
-            string relationshipId,
-            byte[] logoBytes)
-        {
-            var dimensions =
-                CalculateLogoDimensions(logoBytes);
-
-            long widthEmu =
-                dimensions.Item1;
-
-            long heightEmu =
-                dimensions.Item2;
-
-            var drawing =
-                new Drawing(
-                    new DW.Inline(
-                        new DW.Extent
-                        {
-                            Cx = widthEmu,
-                            Cy = heightEmu
-                        },
-
-                        new DW.EffectExtent
-                        {
-                            LeftEdge = 0L,
-                            TopEdge = 0L,
-                            RightEdge = 0L,
-                            BottomEdge = 0L
-                        },
-
-                        new DW.DocProperties
-                        {
-                            Id = 1U,
-                            Name = "QSP Business Unit Logo"
-                        },
-
-                        new DW.NonVisualGraphicFrameDrawingProperties(
-                            new A.GraphicFrameLocks
-                            {
-                                NoChangeAspect = true
-                            }),
-
-                        new A.Graphic(
-                            new A.GraphicData(
-                                new PIC.Picture(
-                                    new PIC.NonVisualPictureProperties(
-                                        new PIC.NonVisualDrawingProperties
-                                        {
-                                            Id = 0U,
-                                            Name = "QSP Business Unit Logo"
-                                        },
-
-                                        new PIC.NonVisualPictureDrawingProperties()
-                                    ),
-
-                                    new PIC.BlipFill(
-                                        new A.Blip
-                                        {
-                                            Embed =
-                                                relationshipId
-                                        },
-
-                                        new A.Stretch(
-                                            new A.FillRectangle())
-                                    ),
-
-                                    new PIC.ShapeProperties(
-                                        new A.Transform2D(
-                                            new A.Offset
-                                            {
-                                                X = 0L,
-                                                Y = 0L
-                                            },
-
-                                            new A.Extents
-                                            {
-                                                Cx = widthEmu,
-                                                Cy = heightEmu
-                                            }
-                                        ),
-
-                                        new A.PresetGeometry(
-                                            new A.AdjustValueList())
-                                        {
-                                            Preset =
-                                                A.ShapeTypeValues.Rectangle
-                                        }
-                                    )
-                                )
-                            )
-                            {
-                                Uri =
-                                    "http://schemas.openxmlformats.org/drawingml/2006/picture"
-                            }
-                        )
-                    )
-                    {
-                        DistanceFromTop = 0U,
-                        DistanceFromBottom = 0U,
-                        DistanceFromLeft = 0U,
-                        DistanceFromRight = 0U
-                    }
-                );
-
-            return drawing;
-        }
-
-        private Tuple<long, long> CalculateLogoDimensions(
-    byte[] logoBytes)
-        {
-            const long emuPerInch = 914400L;
-
-            const double maxWidthInches = 6.5;
-            const double maxHeightInches = 1.5;
-
-            using (var stream = new MemoryStream(logoBytes))
-            using (var image = Image.FromStream(stream))
+            // GIF
+            if (imageBytes[0] == 0x47 &&
+                imageBytes[1] == 0x49 &&
+                imageBytes[2] == 0x46)
             {
-                double pixelWidth = image.Width;
-                double pixelHeight = image.Height;
-
-                if (pixelWidth <= 0 || pixelHeight <= 0)
-                {
-                    throw new InvalidPluginExecutionException(
-                        "Business Unit logo has invalid dimensions.");
-                }
-
-                double aspectRatio =
-                    pixelWidth / pixelHeight;
-
-                double finalWidth =
-                    maxWidthInches;
-
-                double finalHeight =
-                    finalWidth / aspectRatio;
-
-                if (finalHeight > maxHeightInches)
-                {
-                    finalHeight =
-                        maxHeightInches;
-
-                    finalWidth =
-                        finalHeight * aspectRatio;
-                }
-
-                long widthEmu =
-                    (long)(finalWidth * emuPerInch);
-
-                long heightEmu =
-                    (long)(finalHeight * emuPerInch);
-
-                _tracing.Trace(
-                    $"Original logo: {image.Width}x{image.Height}px");
-
-                _tracing.Trace(
-                    $"Logo aspect ratio: {aspectRatio:F2}");
-
-                _tracing.Trace(
-                    $"Final logo size: {finalWidth:F2}x{finalHeight:F2} inches");
-
-                return Tuple.Create(
-                    widthEmu,
-                    heightEmu);
-            }
-        }
-
-        private void ReplaceContentControlWithImage(
-            SdtElement contentControl,
-            Drawing drawing)
-        {
-            var content =
-                contentControl.Descendants<SdtContentRun>()
-                    .FirstOrDefault();
-
-            if (content != null)
-            {
-                content.RemoveAllChildren();
-
-                content.AppendChild(
-                    new Run(drawing));
-
-                return;
+                return ImagePartType.Gif;
             }
 
-            var blockContent =
-                contentControl.Descendants<SdtContentBlock>()
-                    .FirstOrDefault();
-
-            if (blockContent != null)
+            // BMP
+            if (imageBytes[0] == 0x42 &&
+                imageBytes[1] == 0x4D)
             {
-                blockContent.RemoveAllChildren();
-
-                var paragraph =
-                    new Paragraph(
-                        new ParagraphProperties(
-                            new Justification
-                            {
-                                Val =
-                                    JustificationValues.Center
-                            }),
-                        new Run(drawing));
-
-                blockContent.AppendChild(paragraph);
-
-                return;
+                return ImagePartType.Bmp;
             }
 
             throw new InvalidPluginExecutionException(
-                "QSP_BU_LOGO has an unsupported Word content control structure.");
+                "Unsupported Business Unit logo image format. Use PNG, JPEG, GIF or BMP.");
         }
     }
 }
