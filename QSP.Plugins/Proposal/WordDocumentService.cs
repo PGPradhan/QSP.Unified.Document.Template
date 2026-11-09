@@ -258,54 +258,53 @@ namespace QSP.Plugins.Proposal
         {
             const long emuPerInch = 914400L;
 
-            const double maxWidthInches = 2.0;
-            const double maxHeightInches = 1.0;
+            const double maxWidthInches = 6.5;
+            const double maxHeightInches = 1.5;
 
-            using (var stream =
-                new MemoryStream(logoBytes))
-            using (var image =
-                Image.FromStream(stream))
+            using (var stream = new MemoryStream(logoBytes))
+            using (var image = Image.FromStream(stream))
             {
-                double width =
-                    image.Width;
+                double pixelWidth = image.Width;
+                double pixelHeight = image.Height;
 
-                double height =
-                    image.Height;
+                if (pixelWidth <= 0 || pixelHeight <= 0)
+                {
+                    throw new InvalidPluginExecutionException(
+                        "Business Unit logo has invalid dimensions.");
+                }
 
-                double widthScale =
-                    maxWidthInches / width;
-
-                double heightScale =
-                    maxHeightInches / height;
-
-                double scale =
-                    Math.Min(
-                        1.0,
-                        Math.Min(
-                            widthScale,
-                            heightScale));
+                double aspectRatio =
+                    pixelWidth / pixelHeight;
 
                 double finalWidth =
-                    width * scale;
+                    maxWidthInches;
 
                 double finalHeight =
-                    height * scale;
+                    finalWidth / aspectRatio;
+
+                if (finalHeight > maxHeightInches)
+                {
+                    finalHeight =
+                        maxHeightInches;
+
+                    finalWidth =
+                        finalHeight * aspectRatio;
+                }
 
                 long widthEmu =
-                    (long)(
-                        finalWidth *
-                        emuPerInch);
+                    (long)(finalWidth * emuPerInch);
 
                 long heightEmu =
-                    (long)(
-                        finalHeight *
-                        emuPerInch);
+                    (long)(finalHeight * emuPerInch);
 
                 _tracing.Trace(
                     $"Original logo: {image.Width}x{image.Height}px");
 
                 _tracing.Trace(
-                    $"Logo size: {finalWidth:F2}x{finalHeight:F2} inches");
+                    $"Logo aspect ratio: {aspectRatio:F2}");
+
+                _tracing.Trace(
+                    $"Final logo size: {finalWidth:F2}x{finalHeight:F2} inches");
 
                 return Tuple.Create(
                     widthEmu,
@@ -339,9 +338,17 @@ namespace QSP.Plugins.Proposal
             {
                 blockContent.RemoveAllChildren();
 
-                blockContent.AppendChild(
+                var paragraph =
                     new Paragraph(
-                        new Run(drawing)));
+                        new ParagraphProperties(
+                            new Justification
+                            {
+                                Val =
+                                    JustificationValues.Center
+                            }),
+                        new Run(drawing));
+
+                blockContent.AppendChild(paragraph);
 
                 return;
             }
