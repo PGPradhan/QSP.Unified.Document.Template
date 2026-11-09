@@ -123,10 +123,10 @@ namespace QSP.Plugins.Proposal
                     Convert.ToBase64String(
                         documentBytes);
 
-                context.OutputParameters["FileName"] =
+                context.OutputParameters["pp_FileName"] =
                     fileName;
 
-                context.OutputParameters["Document"] =
+                context.OutputParameters["pp_Document"] =
                     documentBase64;
 
                 tracing.Trace(
