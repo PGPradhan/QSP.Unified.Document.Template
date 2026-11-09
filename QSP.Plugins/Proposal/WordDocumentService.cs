@@ -17,7 +17,8 @@ namespace QSP.Plugins.Proposal
     {
         private readonly ITracingService _tracing;
 
-        internal WordDocumentService(ITracingService tracing)
+        internal WordDocumentService(
+            ITracingService tracing)
         {
             _tracing = tracing;
         }
@@ -26,7 +27,8 @@ namespace QSP.Plugins.Proposal
             byte[] templateBytes,
             ProposalResult proposal)
         {
-            if (templateBytes == null || templateBytes.Length == 0)
+            if (templateBytes == null ||
+                templateBytes.Length == 0)
             {
                 throw new InvalidPluginExecutionException(
                     "Word template is empty.");
@@ -35,13 +37,21 @@ namespace QSP.Plugins.Proposal
             if (proposal == null)
             {
                 throw new InvalidPluginExecutionException(
+                    "Proposal data is empty.");
+            }
+
+            if (proposal.LogoBytes == null ||
+                proposal.LogoBytes.Length == 0)
+            {
+                throw new InvalidPluginExecutionException(
                     "Business Unit logo is empty.");
             }
 
             _tracing.Trace(
                 $"Generating Word document. Template size: {templateBytes.Length} bytes.");
 
-            using (var stream = new MemoryStream())
+            using (var stream =
+                new MemoryStream())
             {
                 stream.Write(
                     templateBytes,
@@ -65,9 +75,9 @@ namespace QSP.Plugins.Proposal
                     }
 
                     ReplaceTextContentControl(
-    mainPart,
-    QspProposalConstants.ProposalDateTag,
-    proposal.ProposalDate);
+                        mainPart,
+                        QspProposalConstants.ProposalDateTag,
+                        proposal.ProposalDate);
 
                     ReplaceTextContentControl(
                         mainPart,
@@ -112,29 +122,53 @@ namespace QSP.Plugins.Proposal
         }
 
         private void ReplaceTextContentControl(
-    MainDocumentPart mainPart,
-    string tagName,
-    string value)
+            MainDocumentPart mainPart,
+            string tagName,
+            string value)
         {
-            _tracing.Trace(
-                $"Searching for text content control: {tagName}");
+            value = value ?? string.Empty;
 
-            var controls =
+            _tracing.Trace(
+                $"Looking for text control. Tag: {tagName}, Value: '{value}'");
+
+            var allControls =
                 mainPart.Document
                     .Descendants<SdtElement>()
-                    .Where(
-                        control =>
-                        {
-                            var tag =
-                                control.SdtProperties?
-                                    .GetFirstChild<Tag>();
+                    .ToList();
 
-                            return tag != null &&
-                                   string.Equals(
-                                       tag.Val?.Value,
-                                       tagName,
-                                       StringComparison.Ordinal);
-                        })
+            _tracing.Trace(
+                $"Total content controls found: {allControls.Count}");
+
+            foreach (var control in allControls)
+            {
+                var tag =
+                    control.SdtProperties?
+                        .GetFirstChild<Tag>()?
+                        .Val?
+                        .Value;
+
+                if (!string.IsNullOrWhiteSpace(tag))
+                {
+                    _tracing.Trace(
+                        $"Word content control found with tag: '{tag}'");
+                }
+            }
+
+            var controls =
+                allControls
+                    .Where(control =>
+                    {
+                        var tag =
+                            control.SdtProperties?
+                                .GetFirstChild<Tag>()?
+                                .Val?
+                                .Value;
+
+                        return string.Equals(
+                            tag,
+                            tagName,
+                            StringComparison.Ordinal);
+                    })
                     .ToList();
 
             if (controls.Count == 0)
@@ -143,80 +177,56 @@ namespace QSP.Plugins.Proposal
                     $"Word content control '{tagName}' was not found.");
             }
 
+            _tracing.Trace(
+                $"Found {controls.Count} control(s) for tag '{tagName}'. Value: '{value}'");
+
             foreach (var control in controls)
             {
                 ReplaceTextContent(
                     control,
-                    value ?? string.Empty);
+                    value);
             }
 
             _tracing.Trace(
-                $"Content control '{tagName}' populated. Matches: {controls.Count}");
+                $"Finished processing content control '{tagName}'.");
         }
 
         private void ReplaceTextContent(
-    SdtElement control,
-    string value)
+            SdtElement control,
+            string value)
         {
-            var blockContent =
-                control.GetFirstChild<SdtContentBlock>();
+            value = value ?? string.Empty;
 
-            if (blockContent != null)
+            var textNodes =
+                control
+                    .Descendants<Text>()
+                    .ToList();
+
+            _tracing.Trace(
+                $"Replacing content control text. Existing text nodes: {textNodes.Count}, New value: '{value}'");
+
+            if (textNodes.Count == 0)
             {
-                blockContent.RemoveAllChildren();
-
-                blockContent.AppendChild(
-                    new Paragraph(
-                        new Run(
-                            new Text(value)
-                            {
-                                Space =
-                                    SpaceProcessingModeValues.Preserve
-                            })));
-
-                return;
+                throw new InvalidPluginExecutionException(
+                    "The Word content control does not contain a text element.");
             }
 
-            var runContent =
-                control.GetFirstChild<SdtContentRun>();
+            textNodes[0].Text =
+                value;
 
-            if (runContent != null)
+            textNodes[0].Space =
+                SpaceProcessingModeValues.Preserve;
+
+            for (int i = 1;
+                i < textNodes.Count;
+                i++)
             {
-                runContent.RemoveAllChildren();
-
-                runContent.AppendChild(
-                    new Run(
-                        new Text(value)
-                        {
-                            Space =
-                                SpaceProcessingModeValues.Preserve
-                        }));
-
-                return;
+                textNodes[i].Text =
+                    string.Empty;
             }
 
-            var cellContent =
-                control.GetFirstChild<SdtContentCell>();
-
-            if (cellContent != null)
-            {
-                cellContent.RemoveAllChildren();
-
-                cellContent.AppendChild(
-                    new TableCell(
-                        new Paragraph(
-                            new Run(
-                                new Text(value)
-                                {
-                                    Space =
-                                        SpaceProcessingModeValues.Preserve
-                                }))));
-
-                return;
-            }
-
-            throw new InvalidPluginExecutionException(
-                "Unsupported Word text content control structure.");
+            _tracing.Trace(
+                $"Content control text replaced successfully with '{value}'.");
         }
 
         private void ReplaceBusinessUnitLogo(
@@ -261,7 +271,8 @@ namespace QSP.Plugins.Proposal
                     imagePartType);
 
             using (var imageStream =
-                new MemoryStream(logoBytes))
+                new MemoryStream(
+                    logoBytes))
             {
                 imagePart.FeedData(
                     imageStream);
@@ -315,16 +326,6 @@ namespace QSP.Plugins.Proposal
                 throw new InvalidPluginExecutionException(
                     "Logo content control does not have a valid parent element.");
             }
-
-            /*
-             * IMPORTANT:
-             *
-             * We intentionally replace the complete Picture Content Control.
-             *
-             * The original Word Picture Content Control can contain its own
-             * drawing size/cropping information. Keeping that structure caused
-             * the Business Unit logo to remain cropped.
-             */
 
             if (parent is Paragraph parentParagraph)
             {
