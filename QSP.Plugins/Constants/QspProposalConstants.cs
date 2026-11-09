@@ -12,7 +12,7 @@
             "pp_businessunit";
 
         internal const string CustomerLookup =
-            "pp_qspcustomer";
+            "pp_customername";
 
         internal const string ActualQuote =
             "pp_actualquote";
