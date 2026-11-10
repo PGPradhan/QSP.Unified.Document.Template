@@ -50,8 +50,12 @@
         internal const string CustomerAddressCountry =
             "pp_addresscountry";
 
+        internal const string QuoteNumber = "pp_name";
+
         internal const string TemplateName =
             "QSP Quote Pricing 01 2026-11-5 12-40-8";
+
+        internal const string QuoteNumberTag = "QSP_QUOTE_NUMBER";
 
         internal const string LogoTag =
             "QSP_BU_LOGO";

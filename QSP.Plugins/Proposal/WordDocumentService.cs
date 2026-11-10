@@ -81,6 +81,11 @@ namespace QSP.Plugins.Proposal
 
                     ReplaceTextContentControl(
                         mainPart,
+                        QspProposalConstants.QuoteNumberTag,
+                        proposal.QuoteNumber);
+
+                    ReplaceTextContentControl(
+                        mainPart,
                         QspProposalConstants.ClientNameTag,
                         proposal.ClientName);
 

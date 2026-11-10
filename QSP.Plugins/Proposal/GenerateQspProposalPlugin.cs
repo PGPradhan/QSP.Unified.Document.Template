@@ -72,7 +72,8 @@ namespace QSP.Plugins.Proposal
                             QspProposalConstants.BusinessUnitLookup,
                             QspProposalConstants.CustomerLookup,
                             QspProposalConstants.ActualQuote,
-                            QspProposalConstants.OpportunityName));
+                            QspProposalConstants.OpportunityName,
+                            QspProposalConstants.QuoteNumber));
 
                 tracing.Trace(
                     "Quote retrieved successfully.");
@@ -225,6 +226,9 @@ namespace QSP.Plugins.Proposal
                         DateTime.UtcNow.ToString(
                             "d-MMM-yyyy",
                             CultureInfo.InvariantCulture),
+
+                    QuoteNumber = quote.GetAttributeValue<string>(
+                            QspProposalConstants.QuoteNumber) ?? string.Empty,
 
                     ClientName =
                         customer.GetAttributeValue<string>(

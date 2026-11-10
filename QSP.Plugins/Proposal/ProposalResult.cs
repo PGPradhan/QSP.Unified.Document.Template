@@ -4,6 +4,8 @@
     {
         internal string ProposalDate { get; set; }
 
+        internal string QuoteNumber { get; set; }
+
         internal string ClientName { get; set; }
 
         internal string ContactName { get; set; }
