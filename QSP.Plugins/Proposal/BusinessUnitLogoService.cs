@@ -26,30 +26,45 @@ namespace QSP.Plugins.Proposal
             _tracing.Trace(
                 $"Retrieving proposal logo for Business Unit: {businessUnitId}");
 
-            var businessUnit = _service.Retrieve(
-                QspProposalConstants.BusinessUnitTable,
-                businessUnitId,
-                new ColumnSet(
-                    QspProposalConstants.BusinessUnitName));
-
-            var businessUnitName =
-                businessUnit.GetAttributeValue<string>(
-                    QspProposalConstants.BusinessUnitName);
-
-            _tracing.Trace(
-                $"Business Unit: {businessUnitName}");
+            string businessUnitName = businessUnitId.ToString();
 
             try
             {
+                // =====================================================
+                // RETRIEVE BUSINESS UNIT
+                // =====================================================
+                var businessUnit = _service.Retrieve(
+                    QspProposalConstants.BusinessUnitTable,
+                    businessUnitId,
+                    new ColumnSet(
+                        QspProposalConstants.BusinessUnitName));
+
+                businessUnitName =
+                    businessUnit.GetAttributeValue<string>(
+                        QspProposalConstants.BusinessUnitName)
+                    ?? businessUnitId.ToString();
+
+                _tracing.Trace(
+                    $"Business Unit: {businessUnitName}");
+
+                // =====================================================
+                // DOWNLOAD PROPOSAL LOGO
+                // =====================================================
                 var logo =
                     DownloadFullSizeLogo(
                         businessUnitId);
 
+                // =====================================================
+                // LOGO EMPTY
+                // =====================================================
                 if (logo == null ||
                     logo.Length == 0)
                 {
-                    throw new InvalidPluginExecutionException(
-                        $"Proposal Logo is not configured for Business Unit '{businessUnitName}'.");
+                    _tracing.Trace(
+                        $"Proposal Logo is not configured for Business Unit " +
+                        $"'{businessUnitName}'. Continuing without logo.");
+
+                    return null;
                 }
 
                 _tracing.Trace(
@@ -57,18 +72,18 @@ namespace QSP.Plugins.Proposal
 
                 return logo;
             }
-            catch (InvalidPluginExecutionException)
-            {
-                throw;
-            }
             catch (Exception ex)
             {
+                // =====================================================
+                // LOGO IS OPTIONAL
+                // DO NOT STOP PROPOSAL GENERATION
+                // =====================================================
                 _tracing.Trace(
-                    $"Full-size logo download failed: {ex}");
+                    $"Proposal Logo could not be retrieved for Business Unit " +
+                    $"'{businessUnitName}'. Continuing without logo. " +
+                    $"Error: {ex}");
 
-                throw new InvalidPluginExecutionException(
-                    $"Unable to retrieve Proposal Logo for Business Unit '{businessUnitName}': {ex.Message}",
-                    ex);
+                return null;
             }
         }
 
