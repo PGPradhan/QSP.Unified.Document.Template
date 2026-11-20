@@ -141,8 +141,16 @@ namespace QSP.Plugins.Proposal
                     logoService.GetLogo(
                         businessUnit.Id);
 
-                tracing.Trace(
-                    $"Business Unit logo ready. Size: {logoBytes.Length} bytes.");
+                if (logoBytes != null && logoBytes.Length > 0)
+                {
+                    tracing.Trace(
+                        $"Business Unit logo ready. Size: {logoBytes.Length} bytes.");
+                }
+                else
+                {
+                    tracing.Trace(
+                        "Business Unit logo is not available. Continuing proposal generation without logo.");
+                }
 
                 var proposal =
                     BuildProposalData(

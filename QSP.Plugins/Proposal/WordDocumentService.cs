@@ -40,12 +40,12 @@ namespace QSP.Plugins.Proposal
                     "Proposal data is empty.");
             }
 
-            if (proposal.LogoBytes == null ||
-                proposal.LogoBytes.Length == 0)
-            {
-                throw new InvalidPluginExecutionException(
-                    "Business Unit logo is empty.");
-            }
+            //if (proposal.LogoBytes == null ||
+            //    proposal.LogoBytes.Length == 0)
+            //{
+            //    throw new InvalidPluginExecutionException(
+            //        "Business Unit logo is empty.");
+            //}
 
             _tracing.Trace(
                 $"Generating Word document. Template size: {templateBytes.Length} bytes.");
@@ -109,9 +109,21 @@ namespace QSP.Plugins.Proposal
                         QspProposalConstants.SellPriceTag,
                         proposal.SellPrice);
 
-                    ReplaceBusinessUnitLogo(
-                        mainPart,
-                        proposal.LogoBytes);
+                    // =====================================================
+                    // BUSINESS UNIT LOGO - OPTIONAL
+                    // =====================================================
+                    if (proposal.LogoBytes != null &&
+                        proposal.LogoBytes.Length > 0)
+                    {
+                        ReplaceBusinessUnitLogo(
+                            mainPart,
+                            proposal.LogoBytes);
+                    }
+                    else
+                    {
+                        _tracing.Trace(
+                            "Business Unit logo is not available. Skipping logo replacement.");
+                    }
 
                     mainPart.Document.Save();
                 }
